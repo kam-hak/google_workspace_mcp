@@ -147,6 +147,19 @@ Effect:
 - fixed the earlier cross-process state loss problem
 - moved the auth failure from `Invalid or expired OAuth state parameter` to the later token-exchange-stage `redirect_uri_mismatch`
 
+### OAuth env precedence patch
+Files changed:
+- `/home/workspace/projects_master/google_workspace_mcp/auth/google_auth.py`
+- `/home/workspace/projects_master/google_workspace_mcp/auth/oauth_config.py`
+
+Purpose:
+- prefer app-specific `WORKSPACE_GOOGLE_OAUTH_*` variables over generic `GOOGLE_OAUTH_*`
+- avoid accidentally inheriting Zo-level Google OAuth credentials inside the hosted service runtime
+
+Expected effect:
+- the fork should load Kamran's intended Google OAuth client ID and secret first
+- this should remove the most likely client-config mismatch behind the remaining `redirect_uri_mismatch` failure
+
 ## Hosted service configuration used near the end
 Service label:
 - `gwmcp-auth`
