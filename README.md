@@ -1199,6 +1199,7 @@ uv run pytest
 - `uv sync --group test` installs only the testing stack if you need a slimmer environment.
 - `uv run main.py --transport streamable-http` launches the server with your checked-out code for manual verification.
 - Ruff is part of the `dev` group because pre-push hooks call `ruff check` automatically—run it locally before committing to avoid hook failures.
+- Fork maintainers: see [`MAINTAINING.md`](MAINTAINING.md) for the custom calendar policy delta, baseline commit, and upstream merge workflow.
 
 </details>
 

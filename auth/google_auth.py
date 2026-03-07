@@ -378,11 +378,11 @@ async def start_auth_flow(
     # Note: Caller should ensure OAuth callback is available before calling this function
 
     try:
-        if "OAUTHLIB_INSECURE_TRANSPORT" not in os.environ and (
+        if not os.getenv("OAUTHLIB_INSECURE_TRANSPORT") and (
             "localhost" in redirect_uri or "127.0.0.1" in redirect_uri
         ):  # Use passed redirect_uri
             logger.warning(
-                "OAUTHLIB_INSECURE_TRANSPORT not set. Setting it for localhost/local development."
+                "OAUTHLIB_INSECURE_TRANSPORT not set or empty. Setting it for localhost/local development."
             )
             os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
 
@@ -496,9 +496,9 @@ def handle_auth_callback(
             )
 
         # Allow HTTP for localhost in development
-        if "OAUTHLIB_INSECURE_TRANSPORT" not in os.environ:
+        if not os.getenv("OAUTHLIB_INSECURE_TRANSPORT"):
             logger.warning(
-                "OAUTHLIB_INSECURE_TRANSPORT not set. Setting it for localhost development."
+                "OAUTHLIB_INSECURE_TRANSPORT not set or empty. Setting it for localhost development."
             )
             os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
 

@@ -17,6 +17,7 @@ from googleapiclient.discovery import build
 
 from auth.service_decorator import require_google_service
 from core.utils import handle_http_errors
+from gcalendar.calendar_policy import load_calendar_write_policy
 
 from core.server import server
 
@@ -550,7 +551,7 @@ async def _create_event_impl(
     calendar_id: str = "primary",
     description: Optional[str] = None,
     location: Optional[str] = None,
-    attendees: Optional[List[str]] = None,
+    attendees: Optional[Union[List[str], List[Dict[str, Any]]]] = None,
     timezone: Optional[str] = None,
     attachments: Optional[List[str]] = None,
     add_google_meet: bool = False,
@@ -589,8 +590,17 @@ async def _create_event_impl(
             event_body["start"]["timeZone"] = timezone
         if "dateTime" in event_body["end"]:
             event_body["end"]["timeZone"] = timezone
-    if attendees:
-        event_body["attendees"] = [{"email": email} for email in attendees]
+
+    normalized_attendees = _normalize_attendees(attendees)
+    policy = load_calendar_write_policy()
+    policy.validate_create(
+        calendar_id=calendar_id,
+        attendees=normalized_attendees,
+        guests_can_invite_others=guests_can_invite_others,
+    )
+
+    if normalized_attendees is not None:
+        event_body["attendees"] = normalized_attendees
 
     # Handle reminders
     if reminders is not None or not use_default_reminders:
@@ -788,6 +798,40 @@ def _normalize_attendees(
     return normalized if normalized else None
 
 
+async def _get_existing_event_or_raise(
+    service,
+    calendar_id: str,
+    event_id: str,
+    operation_name: str,
+) -> Dict[str, Any]:
+    """Fetch an existing event and fail closed if policy verification cannot run."""
+    try:
+        existing_event = await asyncio.to_thread(
+            lambda: (
+                service.events().get(calendarId=calendar_id, eventId=event_id).execute()
+            )
+        )
+        logger.info(
+            f"[{operation_name}] Successfully retrieved existing event before mutation"
+        )
+        return existing_event
+    except HttpError as get_error:
+        if get_error.resp.status == 404:
+            logger.error(
+                f"[{operation_name}] Event not found during pre-{operation_name} verification: {get_error}"
+            )
+            message = f"Event not found during verification. The event with ID '{event_id}' could not be found in calendar '{calendar_id}'. This may be due to incorrect ID format or the event no longer exists."
+            raise Exception(message)
+
+        logger.error(
+            f"[{operation_name}] Could not verify existing event before mutation: {get_error}"
+        )
+        raise Exception(
+            f"Could not verify the existing event before {operation_name}. "
+            "Policy enforcement requires reading the event before mutation."
+        ) from get_error
+
+
 async def _modify_event_impl(
     service,
     user_google_email: str,
@@ -814,6 +858,7 @@ async def _modify_event_impl(
     logger.info(
         f"[modify_event] Invoked. Email: '{user_google_email}', Event ID: {event_id}"
     )
+    existing_event: Optional[Dict[str, Any]] = None
 
     # Build the event body with only the fields that are provided
     event_body: Dict[str, Any] = {}
@@ -851,22 +896,13 @@ async def _modify_event_impl(
             reminder_data["useDefault"] = use_default_reminders
         else:
             # Preserve existing event's useDefault value if not explicitly specified
-            try:
-                existing_event = (
-                    service.events()
-                    .get(calendarId=calendar_id, eventId=event_id)
-                    .execute()
+            if existing_event is None:
+                existing_event = await _get_existing_event_or_raise(
+                    service, calendar_id, event_id, "modify_event"
                 )
-                reminder_data["useDefault"] = existing_event.get("reminders", {}).get(
-                    "useDefault", True
-                )
-            except Exception as e:
-                logger.warning(
-                    f"[modify_event] Could not fetch existing event for reminders: {e}"
-                )
-                reminder_data["useDefault"] = (
-                    True  # Fallback to True if unable to fetch
-                )
+            reminder_data["useDefault"] = existing_event.get("reminders", {}).get(
+                "useDefault", True
+            )
 
         # If custom reminders are provided, automatically disable default reminders
         if reminders is not None:
@@ -924,70 +960,62 @@ async def _modify_event_impl(
         logger.warning(f"[modify_event] {message}")
         raise Exception(message)
 
+    policy = load_calendar_write_policy()
+    policy.validate_requested_update(
+        calendar_id=calendar_id,
+        attendees=event_body.get("attendees"),
+        guests_can_invite_others=guests_can_invite_others,
+    )
+
     # Log the event ID for debugging
     logger.info(
         f"[modify_event] Attempting to update event with ID: '{event_id}' in calendar '{calendar_id}'"
     )
 
     # Get the existing event to preserve fields that aren't being updated
-    try:
-        existing_event = await asyncio.to_thread(
-            lambda: (
-                service.events().get(calendarId=calendar_id, eventId=event_id).execute()
-            )
-        )
-        logger.info(
-            "[modify_event] Successfully retrieved existing event before update"
+    if existing_event is None:
+        existing_event = await _get_existing_event_or_raise(
+            service, calendar_id, event_id, "modify_event"
         )
 
-        # Preserve existing fields if not provided in the update
-        _preserve_existing_fields(
-            event_body,
-            existing_event,
-            {
-                "summary": summary,
-                "description": description,
-                "location": location,
-                # Use the already-normalized attendee objects (if provided); otherwise preserve existing
-                "attendees": event_body.get("attendees"),
-                "colorId": event_body.get("colorId"),
-            },
-        )
+    policy.validate_existing_event(calendar_id=calendar_id, event=existing_event)
 
-        # Handle Google Meet conference data
-        if add_google_meet is not None:
-            if add_google_meet:
-                # Add Google Meet
-                request_id = str(uuid.uuid4())
-                event_body["conferenceData"] = {
-                    "createRequest": {
-                        "requestId": request_id,
-                        "conferenceSolutionKey": {"type": "hangoutsMeet"},
-                    }
+    # Preserve existing fields if not provided in the update
+    _preserve_existing_fields(
+        event_body,
+        existing_event,
+        {
+            "summary": summary,
+            "description": description,
+            "location": location,
+            # Use the already-normalized attendee objects (if provided); otherwise preserve existing
+            "attendees": event_body.get("attendees"),
+            "colorId": event_body.get("colorId"),
+        },
+    )
+
+    # Handle Google Meet conference data
+    if add_google_meet is not None:
+        if add_google_meet:
+            # Add Google Meet
+            request_id = str(uuid.uuid4())
+            event_body["conferenceData"] = {
+                "createRequest": {
+                    "requestId": request_id,
+                    "conferenceSolutionKey": {"type": "hangoutsMeet"},
                 }
-                logger.info(
-                    f"[modify_event] Adding Google Meet conference with request ID: {request_id}"
-                )
-            else:
-                # Remove Google Meet by setting conferenceData to empty
-                event_body["conferenceData"] = {}
-                logger.info("[modify_event] Removing Google Meet conference")
-        elif "conferenceData" in existing_event:
-            # Preserve existing conference data if not specified
-            event_body["conferenceData"] = existing_event["conferenceData"]
-            logger.info("[modify_event] Preserving existing conference data")
-
-    except HttpError as get_error:
-        if get_error.resp.status == 404:
-            logger.error(
-                f"[modify_event] Event not found during pre-update verification: {get_error}"
+            }
+            logger.info(
+                f"[modify_event] Adding Google Meet conference with request ID: {request_id}"
             )
-            message = f"Event not found during verification. The event with ID '{event_id}' could not be found in calendar '{calendar_id}'. This may be due to incorrect ID format or the event no longer exists."
-            raise Exception(message)
         else:
-            logger.warning(
-                f"[modify_event] Error during pre-update verification, but proceeding with update: {get_error}"
-            )
+            # Remove Google Meet by setting conferenceData to empty
+            event_body["conferenceData"] = {}
+            logger.info("[modify_event] Removing Google Meet conference")
+    elif "conferenceData" in existing_event:
+        # Preserve existing conference data if not specified
+        event_body["conferenceData"] = existing_event["conferenceData"]
+        logger.info("[modify_event] Preserving existing conference data")
 
     # Proceed with the update
     updated_event = await asyncio.to_thread(
@@ -1035,31 +1063,17 @@ async def _delete_event_impl(
     logger.info(
         f"[delete_event] Invoked. Email: '{user_google_email}', Event ID: {event_id}"
     )
+    policy = load_calendar_write_policy()
 
     # Log the event ID for debugging
     logger.info(
         f"[delete_event] Attempting to delete event with ID: '{event_id}' in calendar '{calendar_id}'"
     )
 
-    # Try to get the event first to verify it exists
-    try:
-        await asyncio.to_thread(
-            lambda: (
-                service.events().get(calendarId=calendar_id, eventId=event_id).execute()
-            )
-        )
-        logger.info("[delete_event] Successfully verified event exists before deletion")
-    except HttpError as get_error:
-        if get_error.resp.status == 404:
-            logger.error(
-                f"[delete_event] Event not found during pre-delete verification: {get_error}"
-            )
-            message = f"Event not found during verification. The event with ID '{event_id}' could not be found in calendar '{calendar_id}'. This may be due to incorrect ID format or the event no longer exists."
-            raise Exception(message)
-        else:
-            logger.warning(
-                f"[delete_event] Error during pre-delete verification, but proceeding with deletion: {get_error}"
-            )
+    existing_event = await _get_existing_event_or_raise(
+        service, calendar_id, event_id, "delete_event"
+    )
+    policy.validate_delete(calendar_id=calendar_id, event=existing_event)
 
     # Proceed with the deletion
     await asyncio.to_thread(
