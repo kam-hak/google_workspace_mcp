@@ -10,6 +10,7 @@ from starlette.datastructures import MutableHeaders
 from starlette.types import Scope, Receive, Send
 from starlette.requests import Request
 from starlette.middleware import Middleware
+from starlette.responses import PlainTextResponse
 
 from fastmcp import FastMCP
 from fastmcp.server.auth.providers.google import GoogleProvider
@@ -39,6 +40,42 @@ _auth_provider: Optional[GoogleProvider] = None
 _legacy_callback_registered = False
 
 session_middleware = Middleware(MCPSessionMiddleware)
+
+
+class BearerTokenGateMiddleware:
+    """Require Authorization: Bearer <MCP_BEARER_TOKEN> for protected HTTP routes."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+        if path == "/health":
+            await self.app(scope, receive, send)
+            return
+
+        expected_token = os.getenv("MCP_BEARER_TOKEN")
+        if not expected_token:
+            response = PlainTextResponse("Unauthorized", status_code=401)
+            await response(scope, receive, send)
+            return
+
+        headers = MutableHeaders(scope=scope)
+        authorization = headers.get("authorization")
+        expected_authorization = f"Bearer {expected_token}"
+        if authorization != expected_authorization:
+            response = PlainTextResponse("Unauthorized", status_code=401)
+            await response(scope, receive, send)
+            return
+
+        await self.app(scope, receive, send)
+
+
+bearer_token_gate_middleware = Middleware(BearerTokenGateMiddleware)
 
 
 class WellKnownCacheControlMiddleware:
@@ -89,14 +126,17 @@ class SecureFastMCP(FastMCP):
         app = super().http_app(**kwargs)
 
         # Add middleware in order (first added = outermost layer)
-        app.user_middleware.insert(0, well_known_cache_control_middleware)
+        app.user_middleware.insert(0, bearer_token_gate_middleware)
+        app.user_middleware.insert(1, well_known_cache_control_middleware)
 
         # Session Management - extracts session info for MCP context
-        app.user_middleware.insert(1, session_middleware)
+        app.user_middleware.insert(2, session_middleware)
 
         # Rebuild middleware stack
         app.middleware_stack = app.build_middleware_stack()
-        logger.info("Added middleware stack: WellKnownCacheControl, Session Management")
+        logger.info(
+            "Added middleware stack: BearerTokenGate, WellKnownCacheControl, Session Management"
+        )
         return app
 
 

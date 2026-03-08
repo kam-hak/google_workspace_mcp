@@ -7,6 +7,88 @@ from starlette.routing import Route
 from starlette.testclient import TestClient
 
 
+def test_bearer_token_gate_fails_closed_when_token_unset(monkeypatch):
+    from core.server import BearerTokenGateMiddleware
+
+    monkeypatch.delenv("MCP_BEARER_TOKEN", raising=False)
+
+    async def protected_endpoint(request):
+        return Response("ok")
+
+    app = Starlette(
+        routes=[Route("/mcp", protected_endpoint)],
+        middleware=[Middleware(BearerTokenGateMiddleware)],
+    )
+    client = TestClient(app)
+
+    response = client.get("/mcp")
+
+    assert response.status_code == 401
+    assert response.text == "Unauthorized"
+
+
+def test_bearer_token_gate_rejects_wrong_token(monkeypatch):
+    from core.server import BearerTokenGateMiddleware
+
+    monkeypatch.setenv("MCP_BEARER_TOKEN", "correct-token")
+
+    async def protected_endpoint(request):
+        return Response("ok")
+
+    app = Starlette(
+        routes=[Route("/mcp", protected_endpoint)],
+        middleware=[Middleware(BearerTokenGateMiddleware)],
+    )
+    client = TestClient(app)
+
+    response = client.get("/mcp", headers={"Authorization": "Bearer wrong-token"})
+
+    assert response.status_code == 401
+    assert response.text == "Unauthorized"
+
+
+def test_bearer_token_gate_allows_correct_token(monkeypatch):
+    from core.server import BearerTokenGateMiddleware
+
+    monkeypatch.setenv("MCP_BEARER_TOKEN", "correct-token")
+
+    async def protected_endpoint(request):
+        return Response("ok")
+
+    app = Starlette(
+        routes=[Route("/mcp", protected_endpoint)],
+        middleware=[Middleware(BearerTokenGateMiddleware)],
+    )
+    client = TestClient(app)
+
+    response = client.get(
+        "/mcp", headers={"Authorization": "Bearer correct-token"}
+    )
+
+    assert response.status_code == 200
+    assert response.text == "ok"
+
+
+def test_bearer_token_gate_keeps_health_open(monkeypatch):
+    from core.server import BearerTokenGateMiddleware
+
+    monkeypatch.delenv("MCP_BEARER_TOKEN", raising=False)
+
+    async def health_endpoint(request):
+        return Response("healthy")
+
+    app = Starlette(
+        routes=[Route("/health", health_endpoint)],
+        middleware=[Middleware(BearerTokenGateMiddleware)],
+    )
+    client = TestClient(app)
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.text == "healthy"
+
+
 def test_well_known_cache_control_middleware_rewrites_headers():
     from core.server import WellKnownCacheControlMiddleware, _compute_scope_fingerprint
 
@@ -55,6 +137,7 @@ def test_configured_server_applies_no_cache_to_served_oauth_discovery_routes(
     monkeypatch,
 ):
     monkeypatch.setenv("MCP_ENABLE_OAUTH21", "true")
+    monkeypatch.setenv("MCP_BEARER_TOKEN", "test-bearer-token")
     monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "dummy-client")
     monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "dummy-secret")
     monkeypatch.setenv("WORKSPACE_MCP_BASE_URI", "http://localhost")
@@ -72,19 +155,24 @@ def test_configured_server_applies_no_cache_to_served_oauth_discovery_routes(
 
     app = core_server.server.http_app(transport="streamable-http", path="/mcp")
     client = TestClient(app)
+    headers = {"Authorization": "Bearer test-bearer-token"}
 
-    authorization_server = client.get("/.well-known/oauth-authorization-server")
+    authorization_server = client.get(
+        "/.well-known/oauth-authorization-server", headers=headers
+    )
     assert authorization_server.status_code == 200
     assert authorization_server.headers["cache-control"] == "no-store, must-revalidate"
     assert authorization_server.headers["etag"].startswith('"')
     assert authorization_server.headers["etag"].endswith('"')
 
-    protected_resource = client.get("/.well-known/oauth-protected-resource/mcp")
+    protected_resource = client.get(
+        "/.well-known/oauth-protected-resource/mcp", headers=headers
+    )
     assert protected_resource.status_code == 200
     assert protected_resource.headers["cache-control"] == "no-store, must-revalidate"
     assert protected_resource.headers["etag"].startswith('"')
     assert protected_resource.headers["etag"].endswith('"')
 
     # Ensure we did not create a shadow route at the wrong path.
-    wrong_path = client.get("/.well-known/oauth-protected-resource")
+    wrong_path = client.get("/.well-known/oauth-protected-resource", headers=headers)
     assert wrong_path.status_code == 404
