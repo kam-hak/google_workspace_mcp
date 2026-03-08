@@ -7,7 +7,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from auth.google_auth import create_oauth_flow  # noqa: E402
+from auth.google_auth import create_oauth_flow, load_client_secrets_from_env  # noqa: E402
+from auth.oauth_config import OAuthConfig  # noqa: E402
 
 
 DUMMY_CLIENT_CONFIG = {
@@ -116,3 +117,44 @@ def test_create_oauth_flow_allows_disabling_autogenerate_without_verifier():
     _args, kwargs = mock_from_client_config.call_args
     assert kwargs["autogenerate_code_verifier"] is False
     assert "code_verifier" not in kwargs
+
+
+def test_workspace_oauth_env_overrides_generic_env_in_client_loader():
+    with patch.dict(
+        os.environ,
+        {
+            "GOOGLE_OAUTH_CLIENT_ID": "generic-client-id",
+            "GOOGLE_OAUTH_CLIENT_SECRET": "generic-client-secret",
+            "GOOGLE_OAUTH_REDIRECT_URI": "https://generic.example/callback",
+            "WORKSPACE_GOOGLE_OAUTH_CLIENT_ID": "workspace-client-id",
+            "WORKSPACE_GOOGLE_OAUTH_CLIENT_SECRET": "workspace-client-secret",
+            "WORKSPACE_GOOGLE_OAUTH_REDIRECT_URI": "https://workspace.example/callback",
+        },
+        clear=False,
+    ):
+        config = load_client_secrets_from_env()
+
+    assert config is not None
+    assert config["web"]["client_id"] == "workspace-client-id"
+    assert config["web"]["client_secret"] == "workspace-client-secret"
+    assert config["web"]["redirect_uris"] == ["https://workspace.example/callback"]
+
+
+def test_workspace_oauth_env_overrides_generic_env_in_oauth_config():
+    with patch.dict(
+        os.environ,
+        {
+            "GOOGLE_OAUTH_CLIENT_ID": "generic-client-id",
+            "GOOGLE_OAUTH_CLIENT_SECRET": "generic-client-secret",
+            "GOOGLE_OAUTH_REDIRECT_URI": "https://generic.example/callback",
+            "WORKSPACE_GOOGLE_OAUTH_CLIENT_ID": "workspace-client-id",
+            "WORKSPACE_GOOGLE_OAUTH_CLIENT_SECRET": "workspace-client-secret",
+            "WORKSPACE_GOOGLE_OAUTH_REDIRECT_URI": "https://workspace.example/callback",
+        },
+        clear=False,
+    ):
+        config = OAuthConfig()
+
+    assert config.client_id == "workspace-client-id"
+    assert config.client_secret == "workspace-client-secret"
+    assert config.redirect_uri == "https://workspace.example/callback"

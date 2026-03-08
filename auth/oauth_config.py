@@ -9,9 +9,12 @@ Supports both OAuth 2.0 and OAuth 2.1 with automatic client capability detection
 """
 
 import os
+import logging
 from threading import RLock
 from urllib.parse import urlparse
 from typing import List, Optional, Dict, Any
+
+logger = logging.getLogger(__name__)
 
 
 class OAuthConfig:
@@ -33,8 +36,12 @@ class OAuthConfig:
         self.external_url = os.getenv("WORKSPACE_EXTERNAL_URL")
 
         # OAuth client configuration
-        self.client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
-        self.client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
+        self.client_id = os.getenv("WORKSPACE_GOOGLE_OAUTH_CLIENT_ID") or os.getenv(
+            "GOOGLE_OAUTH_CLIENT_ID"
+        )
+        self.client_secret = os.getenv("WORKSPACE_GOOGLE_OAUTH_CLIENT_SECRET") or os.getenv(
+            "GOOGLE_OAUTH_CLIENT_SECRET"
+        )
 
         # OAuth 2.1 configuration
         self.oauth21_enabled = (
@@ -70,6 +77,22 @@ class OAuthConfig:
         self.redirect_uri = self._get_redirect_uri()
         self.redirect_path = self._get_redirect_path(self.redirect_uri)
 
+        logger.info(
+            "OAuthConfig initialized: client_id_source=%s client_id_suffix=%s redirect_uri_source=%s redirect_uri=%s",
+            "WORKSPACE_GOOGLE_OAUTH_CLIENT_ID"
+            if os.getenv("WORKSPACE_GOOGLE_OAUTH_CLIENT_ID")
+            else "GOOGLE_OAUTH_CLIENT_ID"
+            if os.getenv("GOOGLE_OAUTH_CLIENT_ID")
+            else "none",
+            self.client_id[-24:] if self.client_id and len(self.client_id) > 24 else self.client_id,
+            "WORKSPACE_GOOGLE_OAUTH_REDIRECT_URI"
+            if os.getenv("WORKSPACE_GOOGLE_OAUTH_REDIRECT_URI")
+            else "GOOGLE_OAUTH_REDIRECT_URI"
+            if os.getenv("GOOGLE_OAUTH_REDIRECT_URI")
+            else "derived",
+            self.redirect_uri,
+        )
+
         # Ensure FastMCP's Google provider picks up our existing configuration
         self._apply_fastmcp_google_env()
 
@@ -80,7 +103,9 @@ class OAuthConfig:
         Returns:
             The configured redirect URI
         """
-        explicit_uri = os.getenv("GOOGLE_OAUTH_REDIRECT_URI")
+        explicit_uri = os.getenv("WORKSPACE_GOOGLE_OAUTH_REDIRECT_URI") or os.getenv(
+            "GOOGLE_OAUTH_REDIRECT_URI"
+        )
         if explicit_uri:
             return explicit_uri
         return f"{self.base_url}/oauth2callback"

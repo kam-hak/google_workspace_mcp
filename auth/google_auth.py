@@ -188,20 +188,44 @@ def load_client_secrets_from_env() -> Optional[Dict[str, Any]]:
     Loads the client secrets from environment variables.
 
     Environment variables used:
-        - GOOGLE_OAUTH_CLIENT_ID: OAuth 2.0 client ID
-        - GOOGLE_OAUTH_CLIENT_SECRET: OAuth 2.0 client secret
-        - GOOGLE_OAUTH_REDIRECT_URI: (optional) OAuth redirect URI
+        - WORKSPACE_GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_ID
+        - WORKSPACE_GOOGLE_OAUTH_CLIENT_SECRET / GOOGLE_OAUTH_CLIENT_SECRET
+        - WORKSPACE_GOOGLE_OAUTH_REDIRECT_URI / GOOGLE_OAUTH_REDIRECT_URI (optional)
 
     Returns:
         Client secrets configuration dict compatible with Google OAuth library,
         or None if required environment variables are not set.
     """
-    client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
-    client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
-    redirect_uri = os.getenv("GOOGLE_OAUTH_REDIRECT_URI")
+    client_id = os.getenv("WORKSPACE_GOOGLE_OAUTH_CLIENT_ID") or os.getenv(
+        "GOOGLE_OAUTH_CLIENT_ID"
+    )
+    client_secret = os.getenv("WORKSPACE_GOOGLE_OAUTH_CLIENT_SECRET") or os.getenv(
+        "GOOGLE_OAUTH_CLIENT_SECRET"
+    )
+    redirect_uri = os.getenv("WORKSPACE_GOOGLE_OAUTH_REDIRECT_URI") or os.getenv(
+        "GOOGLE_OAUTH_REDIRECT_URI"
+    )
 
     if client_id and client_secret:
-        # Create config structure that matches Google client secrets format
+        client_id_source = (
+            "WORKSPACE_GOOGLE_OAUTH_CLIENT_ID"
+            if os.getenv("WORKSPACE_GOOGLE_OAUTH_CLIENT_ID")
+            else "GOOGLE_OAUTH_CLIENT_ID"
+        )
+        redirect_source = (
+            "WORKSPACE_GOOGLE_OAUTH_REDIRECT_URI"
+            if os.getenv("WORKSPACE_GOOGLE_OAUTH_REDIRECT_URI")
+            else "GOOGLE_OAUTH_REDIRECT_URI"
+            if os.getenv("GOOGLE_OAUTH_REDIRECT_URI")
+            else "derived"
+        )
+        logger.info(
+            "Loaded OAuth client credentials from environment variables: client_id_source=%s client_id_suffix=%s redirect_source=%s",
+            client_id_source,
+            client_id[-24:] if len(client_id) > 24 else client_id,
+            redirect_source,
+        )
+
         web_config = {
             "client_id": client_id,
             "client_secret": client_secret,
@@ -210,11 +234,9 @@ def load_client_secrets_from_env() -> Optional[Dict[str, Any]]:
             "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
         }
 
-        # Add redirect_uri if provided via environment variable
         if redirect_uri:
             web_config["redirect_uris"] = [redirect_uri]
 
-        # Return the full config structure expected by Google OAuth library
         config = {"web": web_config}
 
         logger.info("Loaded OAuth client credentials from environment variables")
@@ -229,7 +251,7 @@ def load_client_secrets(client_secrets_path: str) -> Dict[str, Any]:
     Loads the client secrets from environment variables (preferred) or from the client secrets file.
 
     Priority order:
-    1. Environment variables (GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET)
+    1. Environment variables (WORKSPACE_GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET, then GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET)
     2. File-based credentials at the specified path
 
     Args:
@@ -378,11 +400,11 @@ async def start_auth_flow(
     # Note: Caller should ensure OAuth callback is available before calling this function
 
     try:
-        if "OAUTHLIB_INSECURE_TRANSPORT" not in os.environ and (
+        if not os.getenv("OAUTHLIB_INSECURE_TRANSPORT") and (
             "localhost" in redirect_uri or "127.0.0.1" in redirect_uri
         ):  # Use passed redirect_uri
             logger.warning(
-                "OAUTHLIB_INSECURE_TRANSPORT not set. Setting it for localhost/local development."
+                "OAUTHLIB_INSECURE_TRANSPORT not set or empty. Setting it for localhost/local development."
             )
             os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
 
@@ -496,9 +518,9 @@ def handle_auth_callback(
             )
 
         # Allow HTTP for localhost in development
-        if "OAUTHLIB_INSECURE_TRANSPORT" not in os.environ:
+        if not os.getenv("OAUTHLIB_INSECURE_TRANSPORT"):
             logger.warning(
-                "OAUTHLIB_INSECURE_TRANSPORT not set. Setting it for localhost development."
+                "OAUTHLIB_INSECURE_TRANSPORT not set or empty. Setting it for localhost development."
             )
             os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
 
@@ -680,7 +702,8 @@ def get_credentials(
                             )
                             return None
 
-                    # Check scopes after refresh so stale metadata doesn't block valid tokens
+                    # Check scopes after refresh so stale scope metadata doesn't block valid tokens.
+                    # Uses hierarchy-aware check (e.g. gmail.modify satisfies gmail.readonly).
                     if not has_required_scopes(credentials.scopes, required_scopes):
                         logger.warning(
                             f"[get_credentials] OAuth 2.1 credentials lack required scopes. Need: {required_scopes}, Have: {credentials.scopes}"
