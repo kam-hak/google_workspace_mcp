@@ -13,6 +13,30 @@ Keep custom behavior limited to:
 
 Do not broaden the fork delta unless a new requirement explicitly needs it.
 
+## Hosted Contract
+
+This fork's canonical deployment target is a Zo-hosted remote MCP server that uses streamable HTTP plus bearer-token access control.
+
+High-level hosted behavior:
+- Gmail access is intended to remain read-oriented.
+- Calendar reads are allowed.
+- Calendar writes and edits are allowed only when server-side policy permits them.
+- Policy must stay fail-closed: unallowlisted calendars, disallowed attendees, and unsafe guest-invite settings should be rejected by the server.
+
+Current policy shape is env-configured. At minimum, review these together when changing behavior:
+- `GWORKSPACE_REMOTE_MCP_TOKEN`
+- `WORKSPACE_MCP_ALLOWED_CALENDAR_IDS`
+- `WORKSPACE_MCP_ALLOWED_ATTENDEE_EMAILS`
+- `WORKSPACE_GOOGLE_OAUTH_CLIENT_ID`
+- `WORKSPACE_GOOGLE_OAUTH_CLIENT_SECRET`
+
+When hosted policy changes, update these together:
+- `gcalendar/calendar_policy.py`
+- `gcalendar/calendar_tools.py`
+- related calendar policy tests
+- `README.md`
+- this file
+
 ## Merge Workflow
 
 1. `git fetch upstream`

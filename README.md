@@ -1203,6 +1203,18 @@ uv run pytest
 
 </details>
 
+### Fork Hosted Contract
+
+This fork is intended to run as a Zo-hosted remote MCP server, not just as a local single-user tool. The deployed service uses streamable HTTP, bearer-token access control, and external OAuth 2.1 provider mode.
+
+The intended access posture for this hosted deployment is:
+
+- Gmail: read-oriented access for local and agent workflows
+- Calendar: read access plus policy-limited write and edit access
+- Calendar writes: enforced server-side by [`gcalendar/calendar_policy.py`](gcalendar/calendar_policy.py), not by prompt instructions
+
+For the canonical fork delta, hosted-policy expectations, and merge or maintenance workflow, see [`MAINTAINING.md`](MAINTAINING.md).
+
 ### OAuth 2.1 Support (Multi-User Bearer Token Authentication)
 
 The server includes OAuth 2.1 support for bearer token authentication, enabling multi-user session management. **OAuth 2.1 automatically reuses your existing `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET` credentials** - no additional configuration needed!
