@@ -43,7 +43,7 @@ session_middleware = Middleware(MCPSessionMiddleware)
 
 
 class BearerTokenGateMiddleware:
-    """Require Authorization: Bearer <MCP_BEARER_TOKEN> for protected HTTP routes."""
+    """Require Authorization: Bearer <GWORKSPACE_REMOTE_MCP_TOKEN> for protected HTTP routes."""
 
     def __init__(self, app):
         self.app = app
@@ -58,7 +58,7 @@ class BearerTokenGateMiddleware:
             await self.app(scope, receive, send)
             return
 
-        expected_token = os.getenv("MCP_BEARER_TOKEN")
+        expected_token = os.getenv("GWORKSPACE_REMOTE_MCP_TOKEN")
         if not expected_token:
             response = PlainTextResponse("Unauthorized", status_code=401)
             await response(scope, receive, send)

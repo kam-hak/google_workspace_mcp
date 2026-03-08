@@ -10,7 +10,7 @@ from starlette.testclient import TestClient
 def test_bearer_token_gate_fails_closed_when_token_unset(monkeypatch):
     from core.server import BearerTokenGateMiddleware
 
-    monkeypatch.delenv("MCP_BEARER_TOKEN", raising=False)
+    monkeypatch.delenv("GWORKSPACE_REMOTE_MCP_TOKEN", raising=False)
 
     async def protected_endpoint(request):
         return Response("ok")
@@ -30,7 +30,7 @@ def test_bearer_token_gate_fails_closed_when_token_unset(monkeypatch):
 def test_bearer_token_gate_rejects_wrong_token(monkeypatch):
     from core.server import BearerTokenGateMiddleware
 
-    monkeypatch.setenv("MCP_BEARER_TOKEN", "correct-token")
+    monkeypatch.setenv("GWORKSPACE_REMOTE_MCP_TOKEN", "correct-token")
 
     async def protected_endpoint(request):
         return Response("ok")
@@ -50,7 +50,7 @@ def test_bearer_token_gate_rejects_wrong_token(monkeypatch):
 def test_bearer_token_gate_allows_correct_token(monkeypatch):
     from core.server import BearerTokenGateMiddleware
 
-    monkeypatch.setenv("MCP_BEARER_TOKEN", "correct-token")
+    monkeypatch.setenv("GWORKSPACE_REMOTE_MCP_TOKEN", "correct-token")
 
     async def protected_endpoint(request):
         return Response("ok")
@@ -72,7 +72,7 @@ def test_bearer_token_gate_allows_correct_token(monkeypatch):
 def test_bearer_token_gate_keeps_health_open(monkeypatch):
     from core.server import BearerTokenGateMiddleware
 
-    monkeypatch.delenv("MCP_BEARER_TOKEN", raising=False)
+    monkeypatch.delenv("GWORKSPACE_REMOTE_MCP_TOKEN", raising=False)
 
     async def health_endpoint(request):
         return Response("healthy")
@@ -137,7 +137,7 @@ def test_configured_server_applies_no_cache_to_served_oauth_discovery_routes(
     monkeypatch,
 ):
     monkeypatch.setenv("MCP_ENABLE_OAUTH21", "true")
-    monkeypatch.setenv("MCP_BEARER_TOKEN", "test-bearer-token")
+    monkeypatch.setenv("GWORKSPACE_REMOTE_MCP_TOKEN", "test-bearer-token")
     monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "dummy-client")
     monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "dummy-secret")
     monkeypatch.setenv("WORKSPACE_MCP_BASE_URI", "http://localhost")
