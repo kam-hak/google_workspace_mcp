@@ -93,6 +93,7 @@ else:
 
 def _find_any_credentials(
     base_dir: str = DEFAULT_CREDENTIALS_DIR,
+    preferred_user_email: Optional[str] = None,
 ) -> tuple[Optional[Credentials], Optional[str]]:
     """
     Find and load any valid credentials from the credentials directory.
@@ -111,7 +112,18 @@ def _find_any_credentials(
             )
             return None, None
 
-        # Return credentials for the first user found
+        if preferred_user_email and preferred_user_email in users:
+            preferred_credentials = store.get_credential(preferred_user_email)
+            if preferred_credentials:
+                logger.info(
+                    f"[single-user] Found credentials for requested user {preferred_user_email} via credential store"
+                )
+                return preferred_credentials, preferred_user_email
+            logger.warning(
+                f"[single-user] Could not load credentials for requested user {preferred_user_email} via credential store"
+            )
+
+        # Fall back to the first user found when no specific user was requested.
         first_user = users[0]
         credentials = store.get_credential(first_user)
         if credentials:
@@ -724,7 +736,10 @@ def get_credentials(
         logger.info(
             "[get_credentials] Single-user mode: bypassing session mapping, finding any credentials"
         )
-        credentials, found_user_email = _find_any_credentials(credentials_base_dir)
+        credentials, found_user_email = _find_any_credentials(
+            credentials_base_dir,
+            preferred_user_email=user_google_email,
+        )
         if not credentials:
             logger.info(
                 f"[get_credentials] Single-user mode: No credentials found in {credentials_base_dir}"

@@ -1,4 +1,4 @@
-"""Regression tests for OAuth PKCE flow wiring."""
+"""Regression tests for OAuth PKCE flow wiring and auth edge cases."""
 
 import os
 import sys
@@ -7,7 +7,11 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from auth.google_auth import create_oauth_flow, load_client_secrets_from_env  # noqa: E402
+from auth.google_auth import (  # noqa: E402
+    _find_any_credentials,
+    create_oauth_flow,
+    load_client_secrets_from_env,
+)
 from auth.oauth_config import OAuthConfig  # noqa: E402
 
 
@@ -158,3 +162,43 @@ def test_workspace_oauth_env_overrides_generic_env_in_oauth_config():
     assert config.client_id == "workspace-client-id"
     assert config.client_secret == "workspace-client-secret"
     assert config.redirect_uri == "https://workspace.example/callback"
+
+
+def test_find_any_credentials_prefers_requested_user():
+    requested_creds = object()
+    other_creds = object()
+
+    class StubStore:
+        def list_users(self):
+            return ["kah411@pitt.edu", "klhakiman@gmail.com"]
+
+        def get_credential(self, user_email):
+            return {
+                "kah411@pitt.edu": other_creds,
+                "klhakiman@gmail.com": requested_creds,
+            }.get(user_email)
+
+    with patch("auth.google_auth.get_credential_store", return_value=StubStore()):
+        credentials, user_email = _find_any_credentials(
+            preferred_user_email="klhakiman@gmail.com"
+        )
+
+    assert credentials is requested_creds
+    assert user_email == "klhakiman@gmail.com"
+
+
+def test_find_any_credentials_falls_back_to_first_user_when_no_request():
+    first_creds = object()
+
+    class StubStore:
+        def list_users(self):
+            return ["kah411@pitt.edu", "klhakiman@gmail.com"]
+
+        def get_credential(self, user_email):
+            return {"kah411@pitt.edu": first_creds}.get(user_email)
+
+    with patch("auth.google_auth.get_credential_store", return_value=StubStore()):
+        credentials, user_email = _find_any_credentials()
+
+    assert credentials is first_creds
+    assert user_email == "kah411@pitt.edu"
