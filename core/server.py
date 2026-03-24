@@ -54,7 +54,7 @@ class BearerTokenGateMiddleware:
             return
 
         path = scope.get("path", "")
-        if path == "/health":
+        if self._is_open_route(path):
             await self.app(scope, receive, send)
             return
 
@@ -73,6 +73,16 @@ class BearerTokenGateMiddleware:
             return
 
         await self.app(scope, receive, send)
+
+    @staticmethod
+    def _is_open_route(path: str) -> bool:
+        """Return True for HTTP routes that must stay reachable without bearer auth."""
+        if path == "/health":
+            return True
+        # Browser OAuth callbacks cannot attach Authorization headers.
+        if path == "/oauth2callback" or path.startswith("/oauth2/"):
+            return True
+        return False
 
 
 bearer_token_gate_middleware = Middleware(BearerTokenGateMiddleware)

@@ -89,6 +89,26 @@ def test_bearer_token_gate_keeps_health_open(monkeypatch):
     assert response.text == "healthy"
 
 
+def test_bearer_token_gate_keeps_oauth_callback_open(monkeypatch):
+    from core.server import BearerTokenGateMiddleware
+
+    monkeypatch.setenv("GWORKSPACE_REMOTE_MCP_TOKEN", "correct-token")
+
+    async def oauth_callback_endpoint(request):
+        return Response("callback-ok")
+
+    app = Starlette(
+        routes=[Route("/oauth2callback", oauth_callback_endpoint)],
+        middleware=[Middleware(BearerTokenGateMiddleware)],
+    )
+    client = TestClient(app)
+
+    response = client.get("/oauth2callback")
+
+    assert response.status_code == 200
+    assert response.text == "callback-ok"
+
+
 def test_well_known_cache_control_middleware_rewrites_headers():
     from core.server import WellKnownCacheControlMiddleware, _compute_scope_fingerprint
 
