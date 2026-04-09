@@ -37,3 +37,6 @@ ecosystem.config.cjs
 
 # ---- Agent instructions (not for distribution) -------------------------
 .github/instructions/
+
+# ---- Agent work continuity (private, never commit to fork) -------------
+.agent/
