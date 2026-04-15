@@ -77,7 +77,7 @@ class BearerTokenGateMiddleware:
     @staticmethod
     def _is_open_route(path: str) -> bool:
         """Return True for HTTP routes that must stay reachable without bearer auth."""
-        if path == "/health":
+        if path == "/health" or path.startswith("/.well-known/"):
             return True
         # Browser OAuth callbacks cannot attach Authorization headers.
         if path == "/oauth2callback" or path.startswith("/oauth2/"):
