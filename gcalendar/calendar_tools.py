@@ -1003,11 +1003,14 @@ async def _modify_event_impl(
         event_body["conferenceData"] = existing_event["conferenceData"]
         logger.info("[modify_event] Preserving existing conference data")
 
-    # Proceed with the update
+    # Proceed with the update using patch() so only supplied fields are replaced.
+    # events().update() is a full-replace operation that requires start and end
+    # even when the caller only wants to change an unrelated field (e.g. summary).
+    # events().patch() merges server-side, eliminating that requirement.
     updated_event = await asyncio.to_thread(
         lambda: (
             service.events()
-            .update(
+            .patch(
                 calendarId=calendar_id,
                 eventId=event_id,
                 body=event_body,

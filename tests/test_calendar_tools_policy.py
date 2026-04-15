@@ -43,6 +43,8 @@ class _FakeEventsResource:
         }
         self.insert_called = False
         self.update_called = False
+        self.patch_called = False
+        self.patch_body = None
         self.delete_called = False
         self.get_called = False
 
@@ -67,6 +69,17 @@ class _FakeEventsResource:
                 "id": kwargs["eventId"],
                 "summary": kwargs["body"].get("summary", "Updated"),
                 "htmlLink": "https://example.com/updated",
+            }
+        )
+
+    def patch(self, **kwargs):
+        self.patch_called = True
+        self.patch_body = kwargs.get("body", {})
+        return _FakeRequest(
+            {
+                "id": kwargs["eventId"],
+                "summary": kwargs["body"].get("summary", "Patched"),
+                "htmlLink": "https://example.com/patched",
             }
         )
 
@@ -196,3 +209,38 @@ async def test_delete_event_rejects_existing_disallowed_attendee(monkeypatch):
 
     assert service._events.get_called is True
     assert service._events.delete_called is False
+
+
+@pytest.mark.asyncio
+async def test_modify_event_summary_only_succeeds_without_start_end(monkeypatch):
+    """Regression test: _modify_event_impl with only summary (no start_time/end_time)
+    must not fail. Switching to patch() means start/end are not required in the
+    request body; the server merges rather than full-replaces."""
+    monkeypatch.setenv("WORKSPACE_MCP_ALLOWED_CALENDAR_IDS", "primary")
+    monkeypatch.setenv("WORKSPACE_MCP_ALLOWED_ATTENDEE_EMAILS", "kah411@pitt.edu")
+    service = _FakeCalendarService(
+        existing_event={
+            "id": "evt-123",
+            "summary": "Old Title",
+            "start": {"dateTime": "2026-04-20T10:00:00Z"},
+            "end": {"dateTime": "2026-04-20T11:00:00Z"},
+            "attendees": [],
+        }
+    )
+
+    result = await _modify_event_impl(
+        service=service,
+        user_google_email="me@example.com",
+        event_id="evt-123",
+        calendar_id="primary",
+        summary="New Title",
+    )
+
+    assert "Successfully modified event" in result
+    # Must have used patch(), not update(), so start/end absence is safe
+    assert service._events.patch_called is True
+    assert service._events.update_called is False
+    # The patch body must contain only summary — no start or end keys
+    assert service._events.patch_body.get("summary") == "New Title"
+    assert "start" not in service._events.patch_body
+    assert "end" not in service._events.patch_body
