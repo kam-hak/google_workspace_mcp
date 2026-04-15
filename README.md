@@ -673,7 +673,10 @@ cp .env.oauth21 .env
 |------|------|-------------|
 | <sub>`list_calendars`</sub> | <sub>Core</sub> | <sub>List accessible calendars</sub> |
 | <sub>`get_events`</sub> | <sub>Core</sub> | <sub>Retrieve events with time range filtering</sub> |
-| <sub>`manage_event`</sub> | <sub>Core</sub> | <sub>Create, update, or delete calendar events</sub> |
+| <sub>`create_event`</sub> | <sub>Core</sub> | <sub>Create calendar events</sub> |
+| <sub>`update_event`</sub> | <sub>Core</sub> | <sub>Update existing calendar events</sub> |
+| <sub>`delete_event`</sub> | <sub>Core</sub> | <sub>Delete calendar events by ID</sub> |
+| <sub>`rsvp_event`</sub> | <sub>Core</sub> | <sub>Respond to calendar invitations</sub> |
 | <sub>`create_calendar`</sub> | <sub>Extended</sub> | <sub>Create a new secondary Google Calendar</sub> |
 | <sub>`query_freebusy`</sub> | <sub>Extended</sub> | <sub>Query free/busy information for calendars</sub> |
 | <sub>`manage_out_of_office`</sub> | <sub>Extended</sub> | <sub>Create, list, update, or delete Out of Office events</sub> |

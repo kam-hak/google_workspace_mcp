@@ -85,13 +85,16 @@ export OAUTHLIB_INSECURE_TRANSPORT=1  # Development only
 | `get_drive_file_permissions` | Complete | Get detailed file permissions |
 | `check_drive_file_public_access` | Complete | Verify public link sharing for Docs image insertion |
 
-### Google Calendar (3 tools)
+### Google Calendar (6 tools)
 
 | Tool | Tier | Description |
 |------|------|-------------|
 | `list_calendars` | Core | List all accessible calendars |
 | `get_events` | Core | Query events by time range, search, or specific ID |
-| `manage_event` | Core | Create, update, or delete calendar events |
+| `create_event` | Core | Create calendar events |
+| `update_event` | Core | Update existing calendar events |
+| `delete_event` | Core | Delete calendar events by ID |
+| `rsvp_event` | Core | Respond to calendar invitations |
 
 **Event features:** Timezone support, transparency (busy/free), visibility settings, up to 5 custom reminders, Google Meet integration, attendees, attachments
 
