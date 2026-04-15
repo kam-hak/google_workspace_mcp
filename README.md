@@ -843,7 +843,9 @@ cp .env.oauth21 .env
 |------|------|-------------|
 | `list_calendars` | **Core** | List accessible calendars |
 | `get_events` | **Core** | Retrieve events with time range filtering |
-| `manage_event` | **Core** | Create, update, or delete calendar events |
+| `create_event` | **Core** | Create a calendar event |
+| `update_event` | **Core** | Update an existing calendar event |
+| `delete_event` | **Core** | Delete a calendar event |
 
 </td>
 <td width="50%" valign="top">

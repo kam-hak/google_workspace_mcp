@@ -10,7 +10,7 @@ import asyncio
 import re
 import uuid
 import json
-from typing import List, Optional, Dict, Any, Union
+from typing import List, Literal, Optional, Dict, Any, Union
 
 from googleapiclient.errors import HttpError
 from googleapiclient.discovery import build
@@ -351,24 +351,12 @@ async def get_events(
     detailed: bool = False,
     include_attachments: bool = False,
 ) -> str:
-    """
-    Retrieves events from a specified Google Calendar. Can retrieve a single event by ID or multiple events within a time range.
-    You can also search for events by keyword by supplying the optional "query" param.
+    """Retrieve Google Calendar events by time range or by event_id.
 
-    Args:
-        user_google_email (str): The user's Google email address. Required.
-        calendar_id (str): The ID of the calendar to query. Use 'primary' for the user's primary calendar. Defaults to 'primary'. Calendar IDs can be obtained using `list_calendars`.
-        event_id (Optional[str]): The ID of a specific event to retrieve. If provided, retrieves only this event and ignores time filtering parameters.
-        time_min (Optional[str]): The start of the time range (inclusive) in RFC3339 format (e.g., '2024-05-12T10:00:00Z' or '2024-05-12'). If omitted, defaults to the current time. Ignored if event_id is provided.
-        time_max (Optional[str]): The end of the time range (exclusive) in RFC3339 format. If omitted, events starting from `time_min` onwards are considered (up to `max_results`). Ignored if event_id is provided.
-        max_results (int): The maximum number of events to return. Defaults to 25. Ignored if event_id is provided.
-        query (Optional[str]): A keyword to search for within event fields (summary, description, location). Ignored if event_id is provided.
-        detailed (bool): Whether to return detailed event information including description, location, attendees, and attendee details (response status, organizer, optional flags). Defaults to False.
-        include_attachments (bool): Whether to include attachment information in detailed event output. When True, shows attachment details (fileId, fileUrl, mimeType, title) for events that have attachments. Only applies when detailed=True. Set this to True when you need to view or access files that have been attached to calendar events, such as meeting documents, presentations, or other shared files. Defaults to False.
-
-    Returns:
-        str: A formatted list of events (summary, start and end times, link) within the specified range, or detailed information for a single event if event_id is provided.
-    """
+    time_min/time_max accept RFC3339 ("2026-04-20T15:30:00Z") or date-only
+    ("2026-04-20"). time_min defaults to the current UTC time if omitted;
+    time_max defaults to open-ended. When event_id is set, time_min/time_max
+    are ignored. include_attachments only has effect when detailed=True."""
     logger.info(
         f"[get_events] Raw parameters - event_id: '{event_id}', time_min: '{time_min}', time_max: '{time_max}', query: '{query}', detailed: {detailed}, include_attachments: {include_attachments}"
     )
@@ -537,8 +525,6 @@ async def get_events(
 
 # ---------------------------------------------------------------------------
 # Internal implementation functions for event create/modify/delete.
-# These are called by both the consolidated ``manage_event`` tool and the
-# legacy single-action tools.
 # ---------------------------------------------------------------------------
 
 
@@ -1087,22 +1073,15 @@ async def _delete_event_impl(
     return confirmation_message
 
 
-# ---------------------------------------------------------------------------
-# Consolidated event management tool
-# ---------------------------------------------------------------------------
-
-
 @server.tool()
-@handle_http_errors("manage_event", service_type="calendar")
+@handle_http_errors("create_event", service_type="calendar")
 @require_google_service("calendar", "calendar_events")
-async def manage_event(
+async def create_event(
     service,
     user_google_email: str,
-    action: str,
-    summary: Optional[str] = None,
-    start_time: Optional[str] = None,
-    end_time: Optional[str] = None,
-    event_id: Optional[str] = None,
+    summary: str,
+    start_time: str,
+    end_time: str,
     calendar_id: str = "primary",
     description: Optional[str] = None,
     location: Optional[str] = None,
@@ -1112,114 +1091,102 @@ async def manage_event(
     add_google_meet: Optional[bool] = None,
     reminders: Optional[Union[str, List[Dict[str, Any]]]] = None,
     use_default_reminders: Optional[bool] = None,
-    transparency: Optional[str] = None,
-    visibility: Optional[str] = None,
-    color_id: Optional[str] = None,
+    transparency: Optional[Literal["opaque", "transparent"]] = None,
+    visibility: Optional[Literal["default", "public", "private", "confidential"]] = None,
     guests_can_modify: Optional[bool] = None,
     guests_can_invite_others: Optional[bool] = None,
     guests_can_see_other_guests: Optional[bool] = None,
 ) -> str:
-    """
-    Manages calendar events. Supports creating, updating, and deleting events.
-
-    Args:
-        user_google_email (str): The user's Google email address. Required.
-        action (str): Action to perform - "create", "update", or "delete".
-        summary (Optional[str]): Event title (required for create).
-        start_time (Optional[str]): Start time in RFC3339 format (required for create).
-        end_time (Optional[str]): End time in RFC3339 format (required for create).
-        event_id (Optional[str]): Event ID (required for update and delete).
-        calendar_id (str): Calendar ID (default: 'primary').
-        description (Optional[str]): Event description.
-        location (Optional[str]): Event location.
-        attendees (Optional[Union[List[str], List[Dict[str, Any]]]]): Attendee email addresses or objects.
-        timezone (Optional[str]): Timezone (e.g., "America/New_York").
-        attachments (Optional[List[str]]): List of Google Drive file URLs or IDs to attach.
-        add_google_meet (Optional[bool]): Whether to add/remove Google Meet.
-        reminders (Optional[Union[str, List[Dict[str, Any]]]]): Custom reminder objects.
-        use_default_reminders (Optional[bool]): Whether to use default reminders.
-        transparency (Optional[str]): "opaque" (busy) or "transparent" (free).
-        visibility (Optional[str]): "default", "public", "private", or "confidential".
-        color_id (Optional[str]): Event color ID (1-11, update only).
-        guests_can_modify (Optional[bool]): Whether attendees can modify.
-        guests_can_invite_others (Optional[bool]): Whether attendees can invite others.
-        guests_can_see_other_guests (Optional[bool]): Whether attendees can see other guests.
-
-    Returns:
-        str: Confirmation message with event details.
-    """
-    action_lower = action.lower().strip()
-    if action_lower == "create":
-        if not summary or not start_time or not end_time:
-            raise ValueError(
-                "summary, start_time, and end_time are required for create action"
-            )
-        return await _create_event_impl(
-            service=service,
-            user_google_email=user_google_email,
-            summary=summary,
-            start_time=start_time,
-            end_time=end_time,
-            calendar_id=calendar_id,
-            description=description,
-            location=location,
-            attendees=attendees,
-            timezone=timezone,
-            attachments=attachments,
-            add_google_meet=add_google_meet or False,
-            reminders=reminders,
-            use_default_reminders=use_default_reminders
-            if use_default_reminders is not None
-            else True,
-            transparency=transparency,
-            visibility=visibility,
-            guests_can_modify=guests_can_modify,
-            guests_can_invite_others=guests_can_invite_others,
-            guests_can_see_other_guests=guests_can_see_other_guests,
-        )
-    elif action_lower == "update":
-        if not event_id:
-            raise ValueError("event_id is required for update action")
-        return await _modify_event_impl(
-            service=service,
-            user_google_email=user_google_email,
-            event_id=event_id,
-            calendar_id=calendar_id,
-            summary=summary,
-            start_time=start_time,
-            end_time=end_time,
-            description=description,
-            location=location,
-            attendees=attendees,
-            timezone=timezone,
-            add_google_meet=add_google_meet,
-            reminders=reminders,
-            use_default_reminders=use_default_reminders,
-            transparency=transparency,
-            visibility=visibility,
-            color_id=color_id,
-            guests_can_modify=guests_can_modify,
-            guests_can_invite_others=guests_can_invite_others,
-            guests_can_see_other_guests=guests_can_see_other_guests,
-        )
-    elif action_lower == "delete":
-        if not event_id:
-            raise ValueError("event_id is required for delete action")
-        return await _delete_event_impl(
-            service=service,
-            user_google_email=user_google_email,
-            event_id=event_id,
-            calendar_id=calendar_id,
-        )
-    else:
-        raise ValueError(
-            f"Invalid action '{action_lower}'. Must be 'create', 'update', or 'delete'."
-        )
+    """Create a Google Calendar event. start_time/end_time in RFC3339 (e.g. "2026-04-20T15:30:00Z"). timezone in IANA form (e.g. "America/New_York")."""
+    return await _create_event_impl(
+        service=service,
+        user_google_email=user_google_email,
+        summary=summary,
+        start_time=start_time,
+        end_time=end_time,
+        calendar_id=calendar_id,
+        description=description,
+        location=location,
+        attendees=attendees,
+        timezone=timezone,
+        attachments=attachments,
+        add_google_meet=add_google_meet or False,
+        reminders=reminders,
+        use_default_reminders=use_default_reminders if use_default_reminders is not None else True,
+        transparency=transparency,
+        visibility=visibility,
+        guests_can_modify=guests_can_modify,
+        guests_can_invite_others=guests_can_invite_others,
+        guests_can_see_other_guests=guests_can_see_other_guests,
+    )
 
 
-# ---------------------------------------------------------------------------
-# Legacy single-action tools (deprecated -- prefer ``manage_event``)
-# ---------------------------------------------------------------------------
+@server.tool()
+@handle_http_errors("update_event", service_type="calendar")
+@require_google_service("calendar", "calendar_events")
+async def update_event(
+    service,
+    user_google_email: str,
+    event_id: str,
+    calendar_id: str = "primary",
+    summary: Optional[str] = None,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    description: Optional[str] = None,
+    location: Optional[str] = None,
+    attendees: Optional[Union[List[str], List[Dict[str, Any]]]] = None,
+    timezone: Optional[str] = None,
+    add_google_meet: Optional[bool] = None,
+    reminders: Optional[Union[str, List[Dict[str, Any]]]] = None,
+    use_default_reminders: Optional[bool] = None,
+    transparency: Optional[Literal["opaque", "transparent"]] = None,
+    visibility: Optional[Literal["default", "public", "private", "confidential"]] = None,
+    color_id: Optional[Literal["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"]] = None,
+    guests_can_modify: Optional[bool] = None,
+    guests_can_invite_others: Optional[bool] = None,
+    guests_can_see_other_guests: Optional[bool] = None,
+) -> str:
+    """Update an existing Google Calendar event. Only fields passed are changed. start_time/end_time in RFC3339 (e.g. "2026-04-20T15:30:00Z"). timezone in IANA form (e.g. "America/New_York")."""
+    return await _modify_event_impl(
+        service=service,
+        user_google_email=user_google_email,
+        event_id=event_id,
+        calendar_id=calendar_id,
+        summary=summary,
+        start_time=start_time,
+        end_time=end_time,
+        description=description,
+        location=location,
+        attendees=attendees,
+        timezone=timezone,
+        add_google_meet=add_google_meet,
+        reminders=reminders,
+        use_default_reminders=use_default_reminders,
+        transparency=transparency,
+        visibility=visibility,
+        color_id=color_id,
+        guests_can_modify=guests_can_modify,
+        guests_can_invite_others=guests_can_invite_others,
+        guests_can_see_other_guests=guests_can_see_other_guests,
+    )
+
+
+@server.tool()
+@handle_http_errors("delete_event", service_type="calendar")
+@require_google_service("calendar", "calendar_events")
+async def delete_event(
+    service,
+    user_google_email: str,
+    event_id: str,
+    calendar_id: str = "primary",
+) -> str:
+    """Delete a Google Calendar event by event_id."""
+    return await _delete_event_impl(
+        service=service,
+        user_google_email=user_google_email,
+        event_id=event_id,
+        calendar_id=calendar_id,
+    )
 
 
 @server.tool()
@@ -1234,20 +1201,11 @@ async def query_freebusy(
     group_expansion_max: Optional[int] = None,
     calendar_expansion_max: Optional[int] = None,
 ) -> str:
-    """
-    Returns free/busy information for a set of calendars.
+    """Return free/busy windows for the given calendars.
 
-    Args:
-        user_google_email (str): The user's Google email address. Required.
-        time_min (str): The start of the interval for the query in RFC3339 format (e.g., '2024-05-12T10:00:00Z' or '2024-05-12').
-        time_max (str): The end of the interval for the query in RFC3339 format (e.g., '2024-05-12T18:00:00Z' or '2024-05-12').
-        calendar_ids (Optional[List[str]]): List of calendar identifiers to query. If not provided, queries the primary calendar. Use 'primary' for the user's primary calendar or specific calendar IDs obtained from `list_calendars`.
-        group_expansion_max (Optional[int]): Maximum number of calendar identifiers to be provided for a single group. Optional. An error is returned for a group with more members than this value. Maximum value is 100.
-        calendar_expansion_max (Optional[int]): Maximum number of calendars for which FreeBusy information is to be provided. Optional. Maximum value is 50.
-
-    Returns:
-        str: A formatted response showing free/busy information for each requested calendar, including busy time periods.
-    """
+    time_min/time_max in RFC3339 (e.g. "2026-04-20T15:30:00Z"). calendar_ids
+    defaults to ["primary"] if omitted. group_expansion_max max 100;
+    calendar_expansion_max max 50."""
     logger.info(
         f"[query_freebusy] Invoked. Email: '{user_google_email}', time_min: '{time_min}', time_max: '{time_max}'"
     )
