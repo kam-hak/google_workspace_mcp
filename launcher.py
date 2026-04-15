@@ -63,7 +63,14 @@ except BaseException as exc:
 try:
     _main.main()
 except SystemExit as exc:
-    _emit(f"SystemExit code={exc.code}")
+    if exc.code not in (None, 0):
+        tb = "".join(
+            traceback.format_exception(type(exc), exc, exc.__traceback__)
+        )
+        _emit(f"SystemExit code={exc.code}")
+        _emit("TRACEBACK:\n" + tb)
+    else:
+        _emit(f"SystemExit code={exc.code}")
     raise
 except BaseException as exc:
     _dump_exception("UNCAUGHT IN main():", exc)
