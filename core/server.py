@@ -78,7 +78,7 @@ class BearerTokenGateMiddleware:
     @staticmethod
     def _is_open_route(path: str) -> bool:
         """Return True for HTTP routes that must stay reachable without bearer auth."""
-        if path == "/health":
+        if path in {"/app", "/privacy", "/health"}:
             return True
         # Browser OAuth callbacks cannot attach Authorization headers.
         if path == "/oauth2callback" or path.startswith("/oauth2/"):
@@ -581,6 +581,34 @@ async def health_check(request: Request):
             "version": version,
             "transport": get_transport_mode(),
         }
+    )
+
+
+@server.custom_route("/app", methods=["GET"])
+async def app_information(request: Request):
+    """Serve the public app-information page required for OAuth branding."""
+    return HTMLResponse(
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+        "<title>klh_agents</title></head><body><h1>klh_agents</h1>"
+        "<p>A personal Google Calendar integration. It uses the Calendar permissions "
+        "granted by the account owner to support their requested scheduling and "
+        "automation tasks. It is intended for personal use.</p>"
+        "<p><a href=\"/privacy\">Privacy notice</a></p></body></html>"
+    )
+
+
+@server.custom_route("/privacy", methods=["GET"])
+async def privacy_notice(request: Request):
+    """Serve the public privacy notice required for OAuth branding."""
+    return HTMLResponse(
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+        "<title>Privacy notice</title></head><body><h1>Privacy notice</h1>"
+        "<p>This integration accesses Google Calendar data under the permissions "
+        "granted by the account owner. It uses that data to perform the scheduling "
+        "and automation tasks requested by the owner. Access can be revoked through "
+        "Google Account third-party connections. <a href=\"https://myaccount.google.com/connections\">"
+        "https://myaccount.google.com/connections</a>.</p>"
+        "<p><a href=\"/app\">/app</a></p></body></html>"
     )
 
 

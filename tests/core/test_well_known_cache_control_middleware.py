@@ -196,3 +196,41 @@ def test_configured_server_applies_no_cache_to_served_oauth_discovery_routes(
     # Ensure we did not create a shadow route at the wrong path.
     wrong_path = client.get("/.well-known/oauth-protected-resource", headers=headers)
     assert wrong_path.status_code == 404
+
+
+def test_bearer_token_gate_keeps_branding_pages_open_and_mcp_protected(monkeypatch):
+    from core.server import (
+        BearerTokenGateMiddleware,
+        app_information,
+        privacy_notice,
+    )
+
+    monkeypatch.delenv("GWORKSPACE_REMOTE_MCP_TOKEN", raising=False)
+
+    async def protected_endpoint(request):
+        return Response("ok")
+
+    app = Starlette(
+        routes=[
+            Route("/app", app_information),
+            Route("/privacy", privacy_notice),
+            Route("/mcp", protected_endpoint),
+        ],
+        middleware=[Middleware(BearerTokenGateMiddleware)],
+    )
+    client = TestClient(app)
+
+    app_response = client.get("/app")
+    assert app_response.status_code == 200
+    assert "<h1>klh_agents</h1>" in app_response.text
+    assert "href=\"/privacy\"" in app_response.text
+
+    privacy_response = client.get("/privacy")
+    assert privacy_response.status_code == 200
+    assert "<h1>Privacy notice</h1>" in privacy_response.text
+    assert "https://myaccount.google.com/connections" in privacy_response.text
+    assert "href=\"/app\"" in privacy_response.text
+
+    mcp_response = client.get("/mcp")
+    assert mcp_response.status_code == 401
+    assert mcp_response.text == "Unauthorized"
